@@ -4,6 +4,10 @@ import { Button, Container, ErrorMessage, Section } from "@/components/ui";
 import { AdminShell, AdminOrderDetailView } from "@/components/admin";
 import { getOrderForAdmin, requireAdmin } from "@/lib/orders/server";
 import { formatPrice } from "@/lib/utils";
+import {
+  describeMissingReason,
+  resolveNotificationRecipient,
+} from "@/lib/orders/recipient";
 
 export const metadata = {
   title: "Admin — Order details",
@@ -38,6 +42,12 @@ export default async function AdminOrderDetailPage({
     return renderGuard(result.kind);
   }
   const { order, customerEmail, timeline, notifications } = result;
+  const recipient = resolveNotificationRecipient(
+    process.env.STORE_ORDER_NOTIFICATION_EMAIL,
+  );
+  const recipientConfigured = recipient.kind === "ok";
+  const recipientMissingReason =
+    recipient.kind === "missing" ? describeMissingReason(recipient.reason) : null;
   return (
     <AdminShell
       current="/admin/orders"
@@ -56,6 +66,8 @@ export default async function AdminOrderDetailPage({
         customerEmail={customerEmail}
         timeline={timeline}
         notifications={notifications}
+        recipientConfigured={recipientConfigured}
+        recipientMissingReason={recipientMissingReason}
       />
     </AdminShell>
   );

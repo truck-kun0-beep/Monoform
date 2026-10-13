@@ -15,6 +15,7 @@ import {
 import { AdminOrderStatusForm } from "./AdminOrderStatusForm";
 import { AdminPaymentStatusForm } from "./AdminPaymentStatusForm";
 import { AdminNotificationRetryButton } from "./AdminNotificationRetryButton";
+import { AdminNotificationRebuildButton } from "./AdminNotificationRebuildButton";
 import { orderStatusTone, paymentStatusTone } from "./AdminOrdersTable";
 import { CopyButton } from "@/components/ui";
 
@@ -23,6 +24,22 @@ type Props = {
   customerEmail: string | null;
   timeline: OrderTimelineEvent[];
   notifications: OrderNotificationSummary[];
+  /**
+   * Whether the deployment has `STORE_ORDER_NOTIFICATION_EMAIL`
+   * set to a usable email address. When `false`, the admin
+   * notifications card shows an explicit "recipient not
+   * configured" message and the rebuild button carries a hint
+   * that clicking it will create a `pending` row with a "not
+   * configured" error rather than a real delivery.
+   */
+  recipientConfigured: boolean;
+  /**
+   * Operator-facing explanation for why no notifications were
+   * queued for this order. Computed on the server from the env
+   * state and the recipient resolver so the wording is identical
+   * to the `last_error` written into rebuilt rows.
+   */
+  recipientMissingReason: string | null;
 };
 
 /**
@@ -37,6 +54,8 @@ export function AdminOrderDetailView({
   customerEmail,
   timeline,
   notifications,
+  recipientConfigured,
+  recipientMissingReason,
 }: Props) {
   return (
     <article className="flex flex-col gap-8" aria-label={`Order ${order.number}`}>
@@ -53,7 +72,12 @@ export function AdminOrderDetailView({
           <StatusControlsCard order={order} />
         </div>
       </div>
-      <NotificationsCard order={order} notifications={notifications} />
+      <NotificationsCard
+        order={order}
+        notifications={notifications}
+        recipientConfigured={recipientConfigured}
+        recipientMissingReason={recipientMissingReason}
+      />
     </article>
   );
 }
@@ -282,9 +306,13 @@ function StatusControlsCard({ order }: { order: OrderDetail }) {
 function NotificationsCard({
   order,
   notifications,
+  recipientConfigured,
+  recipientMissingReason,
 }: {
   order: OrderDetail;
   notifications: OrderNotificationSummary[];
+  recipientConfigured: boolean;
+  recipientMissingReason: string | null;
 }) {
   return (
     <section className="border border-line bg-paper p-6" aria-label="Notifications">
@@ -292,9 +320,34 @@ function NotificationsCard({
         Store-owner notifications
       </h2>
       {notifications.length === 0 ? (
-        <p className="mt-3 text-sm text-ink-muted">
-          No notifications have been queued for this order.
-        </p>
+        <div className="mt-3 flex flex-col gap-3 text-sm text-ink-muted">
+          {recipientConfigured ? (
+            <p>
+              No notifications were queued for this order. Use the button
+              below to create one now and dispatch it.
+            </p>
+          ) : (
+            <>
+              <p className="text-ink">
+                No notifications have been queued for this order because the
+                store-owner recipient is not configured.
+              </p>
+              {recipientMissingReason ? (
+                <p className="text-ink-muted">{recipientMissingReason}</p>
+              ) : null}
+            </>
+          )}
+          <div>
+            <AdminNotificationRebuildButton
+              orderId={order.id}
+              hint={
+                recipientConfigured
+                  ? undefined
+                  : "A new row will be created in 'pending' with a 'Recipient not configured' error until STORE_ORDER_NOTIFICATION_EMAIL is set in the deployment environment."
+              }
+            />
+          </div>
+        </div>
       ) : (
         <ul className="mt-4 flex flex-col gap-4 text-sm">
           {notifications.map((notification) => (
