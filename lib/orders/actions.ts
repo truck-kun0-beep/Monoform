@@ -6,6 +6,7 @@ import {
   updateOrderStatus,
   updatePaymentStatus,
   retryNotification,
+  rebuildNotificationForOrder,
   type PlaceOrderInput,
   type PlaceOrderResult,
   type UpdateOrderStatusInput,
@@ -13,6 +14,7 @@ import {
   type UpdatePaymentStatusInput,
   type UpdatePaymentStatusResult,
   type RetryNotificationResult,
+  type RebuildNotificationResult,
 } from "./service";
 import type {
   OrderPaymentMethod,
@@ -405,6 +407,47 @@ export async function retryNotificationAction(
   }
   if (result.kind === "not_retryable") {
     return { ok: false, error: "This notification has already been delivered.", code: "not_retryable" };
+  }
+  return { ok: false, error: result.message, code: "error" };
+}
+
+/**
+ * Server action for the admin "Rebuild notification" button on an
+ * order that committed without an outbox row (typically because
+ * the deployment was missing `STORE_ORDER_NOTIFICATION_EMAIL` at
+ * the time the order was placed).
+ *
+ * Creates a fresh `pending` row using the *current* recipient
+ * configuration and immediately hands it to the dispatch
+ * pipeline. A duplicate rebuild on an order that already has a row
+ * is a no-op (returns `ok` after `revalidatePath` so the UI shows
+ * the live state).
+ */
+export async function rebuildNotificationAction(
+  form: FormData,
+): Promise<AdminOrderActionResult> {
+  const orderId = formString(form, "orderId");
+  if (!isUuid(orderId)) {
+    return { ok: false, error: "Order not found.", code: "not_found" };
+  }
+  const result: RebuildNotificationResult =
+    await rebuildNotificationForOrder(orderId);
+  if (result.kind === "ok" || result.kind === "already_queued") {
+    revalidatePath(`/admin/orders/${orderId}`);
+    revalidatePath(`/admin/orders`);
+    return { ok: true };
+  }
+  if (result.kind === "forbidden") {
+    return { ok: false, error: "You do not have access to this order.", code: "forbidden" };
+  }
+  if (result.kind === "not_authenticated") {
+    return { ok: false, error: "Please sign in again.", code: "not_authenticated" };
+  }
+  if (result.kind === "not_configured") {
+    return { ok: false, error: "The order backend is not configured.", code: "not_configured" };
+  }
+  if (result.kind === "not_found") {
+    return { ok: false, error: "Order not found.", code: "not_found" };
   }
   return { ok: false, error: result.message, code: "error" };
 }

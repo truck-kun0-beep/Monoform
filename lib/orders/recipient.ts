@@ -60,3 +60,61 @@ export function resolveNotificationRecipient(
   }
   return { kind: "ok", value: trimmed };
 }
+
+/**
+ * Stable placeholder recipient used when the deployment has not
+ * configured `STORE_ORDER_NOTIFICATION_EMAIL`. The `.invalid` TLD
+ * is reserved by RFC 2606 to guarantee the address cannot route to
+ * a real mailbox — the dispatch path can still record the attempt
+ * and the admin can rebuild the row once the env var is set. The
+ * exact value is also exported so tests can assert on it.
+ */
+export const UNCONFIGURED_NOTIFICATION_RECIPIENT =
+  "not-configured@local.invalid";
+
+/**
+ * Resolve the recipient an order should be queued for, falling
+ * back to a safe placeholder when the env var is missing. The
+ * `lastError` field returns a short operator-facing explanation
+ * when the fallback is used so the admin UI can surface it.
+ */
+export function resolveNotificationRecipientForQueue(
+  raw: string | undefined | null,
+): {
+  recipient: string;
+  configured: boolean;
+  lastError: string | null;
+} {
+  const resolved = resolveNotificationRecipient(raw);
+  if (resolved.kind === "ok") {
+    return {
+      recipient: resolved.value,
+      configured: true,
+      lastError: null,
+    };
+  }
+  const reason = describeMissingReason(resolved.reason);
+  return {
+    recipient: UNCONFIGURED_NOTIFICATION_RECIPIENT,
+    configured: false,
+    lastError: reason,
+  };
+}
+
+/**
+ * Short operator-facing description for a missing-recipient
+ * reason. Kept in one place so the admin UI and the logs use the
+ * same wording.
+ */
+export function describeMissingReason(
+  reason: "unset" | "placeholder" | "invalid",
+): string {
+  switch (reason) {
+    case "unset":
+      return "STORE_ORDER_NOTIFICATION_EMAIL is not configured. Set it in the deployment environment, then rebuild the notification.";
+    case "placeholder":
+      return "STORE_ORDER_NOTIFICATION_EMAIL is still the example placeholder. Replace it with a real address, then rebuild the notification.";
+    case "invalid":
+      return "STORE_ORDER_NOTIFICATION_EMAIL is not a valid email address. Fix it in the deployment environment, then rebuild the notification.";
+  }
+}

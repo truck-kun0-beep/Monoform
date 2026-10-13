@@ -39,7 +39,7 @@ import {
 } from "./config";
 import { dispatchNewOrderNotification } from "./notifications";
 import { logOrderEvent, summariseSupabaseError } from "./diagnostics";
-import { resolveNotificationRecipient } from "./recipient";
+import { resolveNotificationRecipientForQueue } from "./recipient";
 
 /* ------------------------------------------------------------------ *
  * Service-role client
@@ -212,6 +212,24 @@ export type RetryNotificationResult =
   | { kind: "forbidden" }
   | { kind: "not_found" }
   | { kind: "not_retryable" }
+  | { kind: "error"; message: string };
+
+/**
+ * Result of `rebuildNotificationForOrder` — the recovery path for
+ * an order that committed without an outbox row (for example
+ * because the deployment was missing
+ * `STORE_ORDER_NOTIFICATION_EMAIL` when the order was placed).
+ */
+export type RebuildNotificationResult =
+  | { kind: "ok"; notification: OrderNotificationSummary }
+  | { kind: "not_configured" }
+  | { kind: "not_authenticated" }
+  | { kind: "forbidden" }
+  | { kind: "not_found" }
+  | {
+      kind: "already_queued";
+      notification: OrderNotificationSummary;
+    }
   | { kind: "error"; message: string };
 
 /* ------------------------------------------------------------------ *
@@ -615,39 +633,50 @@ export async function placeOrder(
   // Notification outbox row. The actual email delivery is performed
   // by the notification service after the order is committed.
   //
-  // When `STORE_ORDER_NOTIFICATION_EMAIL` is missing or still a
-  // placeholder we intentionally skip the outbox insert. Inserting
-  // a row with an empty recipient would (a) violate the column's
-  // not-null contract semantically, (b) leave a `pending` row the
-  // operator can never act on, and (c) hide the missing
-  // configuration. The order is still committed — notification is
-  // a separate, best-effort concern.
-  const recipient = resolveNotificationRecipient(
-    process.env.STORE_ORDER_NOTIFICATION_EMAIL,
-  );
-  if (recipient.kind === "missing") {
+  // The outbox is ALWAYS written, even when the deployment is
+  // missing `STORE_ORDER_NOTIFICATION_EMAIL` or the value is a
+  // placeholder. A missing recipient is recorded as a `pending`
+  // row with the safe `not-configured@local.invalid` fallback and
+  // a descriptive `last_error` so the operator can (a) see the
+  // order in the admin dashboard and (b) rebuild the notification
+  // once the env var is set. Skipping the insert entirely left
+  // the operator with a misleading "No notifications have been
+  // queued" message and no recovery path.
+  const { recipient, configured, lastError: recipientLastError } =
+    resolveNotificationRecipientForQueue(
+      process.env.STORE_ORDER_NOTIFICATION_EMAIL,
+    );
+  if (!configured) {
     logOrderEvent("warn", "notification_recipient_missing", {
       orderId,
-      reason: recipient.reason,
+      // The `reason` field is the resolved recipient kind
+      // ("unset" / "placeholder" / "invalid"). The full operator
+      // explanation is written into the row's `last_error` so it
+      // appears in the admin dashboard, not just the logs.
+      reason: recipientLastError?.includes("placeholder")
+        ? "placeholder"
+        : recipientLastError?.includes("not a valid email")
+          ? "invalid"
+          : "unset",
     });
-  } else {
-    const { error: notifInsertError } = await client
-      .from("order_notifications")
-      .insert({
-        order_id: orderId,
-        notification_type: "new_order_owner",
-        recipient: recipient.value,
-        status: "pending",
-      });
-    if (notifInsertError) {
-      // The order is already committed. Log the failure so the
-      // operator can rebuild the outbox row, but do NOT roll back
-      // the order and do NOT report a customer-facing error.
-      logOrderEvent("error", "notification_outbox_insert_failed", {
-        orderId,
-        ...summariseSupabaseError(notifInsertError),
-      });
-    }
+  }
+  const { error: notifInsertError } = await client
+    .from("order_notifications")
+    .insert({
+      order_id: orderId,
+      notification_type: "new_order_owner",
+      recipient,
+      status: "pending",
+      last_error: recipientLastError,
+    });
+  if (notifInsertError) {
+    // The order is already committed. Log the failure so the
+    // operator can rebuild the outbox row, but do NOT roll back
+    // the order and do NOT report a customer-facing error.
+    logOrderEvent("error", "notification_outbox_insert_failed", {
+      orderId,
+      ...summariseSupabaseError(notifInsertError),
+    });
   }
 
   // The order is committed at this point. Build the response detail
@@ -1112,6 +1141,153 @@ export async function retryNotification(
   return { kind: "error", message: "Retry failed." };
 }
 
+/**
+ * Recovery path for orders that committed without an outbox row.
+ *
+ * The original `placeOrder` intentionally skipped the outbox
+ * insert when `STORE_ORDER_NOTIFICATION_EMAIL` was missing. That
+ * left the operator with a misleading "No notifications have been
+ * queued" message and no way to dispatch the email once the env
+ * var was populated. This function looks up the order, checks the
+ * outbox is empty for it, then inserts a fresh `pending` row using
+ * the *current* recipient resolver and immediately hands the row
+ * to the dispatch pipeline. The pipeline's existing
+ * "already sent" / "not retryable" / "failed" logic still applies,
+ * so a duplicate rebuild on an order whose row already exists
+ * never sends a second email — it returns `already_queued` so the
+ * UI can re-render the existing notification card.
+ */
+export async function rebuildNotificationForOrder(
+  orderId: string,
+): Promise<RebuildNotificationResult> {
+  const guard = await requireAdmin();
+  if (guard.kind !== "ok") {
+    if (guard.kind === "forbidden")
+      return { kind: "forbidden" };
+    if (guard.kind === "not_authenticated")
+      return { kind: "not_authenticated" };
+    return { kind: "not_configured" };
+  }
+  if (!isValidTransitionId(orderId)) {
+    return { kind: "not_found" };
+  }
+  const client = getServiceClient();
+  if (!client) return { kind: "not_configured" };
+
+  // Verify the order exists and is owned by the platform (admin
+  // context). The service-role key has full read access, so the
+  // admin allowlist check above is sufficient.
+  const { data: orderRow, error: orderError } = await client
+    .from("orders")
+    .select("id")
+    .eq("id", orderId)
+    .maybeSingle();
+  if (orderError || !orderRow) {
+    return { kind: "not_found" };
+  }
+
+  // If the order already has a notification row, do not create a
+  // second one. Return the existing row so the admin UI can
+  // surface the live state instead of fabricating a new attempt.
+  const { data: existing, error: existingError } = await client
+    .from("order_notifications")
+    .select(
+      "id, status, recipient, attempt_count, last_attempted_at, last_error, sent_at",
+    )
+    .eq("order_id", orderId)
+    .eq("notification_type", "new_order_owner")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (existingError) {
+    return {
+      kind: "error",
+      message: "Could not check the existing notification row.",
+    };
+  }
+  if (existing) {
+    return {
+      kind: "already_queued",
+      notification: rowToNotificationSummary(existing as Record<string, unknown>),
+    };
+  }
+
+  // Insert a fresh `pending` row using the *current* recipient
+  // configuration. If the env var is still missing, the safe
+  // fallback recipient is used and `last_error` records the reason
+  // so the operator can see why a rebuild did not actually send.
+  const { recipient, configured, lastError: recipientLastError } =
+    resolveNotificationRecipientForQueue(
+      process.env.STORE_ORDER_NOTIFICATION_EMAIL,
+    );
+  if (!configured) {
+    logOrderEvent("warn", "notification_recipient_missing", {
+      orderId,
+      reason: recipientLastError?.includes("placeholder")
+        ? "placeholder"
+        : recipientLastError?.includes("not a valid email")
+          ? "invalid"
+          : "unset",
+      source: "rebuild",
+    });
+  }
+
+  const { data: inserted, error: insertError } = await client
+    .from("order_notifications")
+    .insert({
+      order_id: orderId,
+      notification_type: "new_order_owner",
+      recipient,
+      status: "pending",
+      last_error: recipientLastError,
+    })
+    .select(
+      "id, status, recipient, attempt_count, last_attempted_at, last_error, sent_at",
+    )
+    .single();
+  if (insertError || !inserted) {
+    logOrderEvent("error", "notification_outbox_insert_failed", {
+      orderId,
+      ...summariseSupabaseError(insertError),
+    });
+    return {
+      kind: "error",
+      message: "Could not create the notification row.",
+    };
+  }
+
+  // Hand the new row to the dispatch pipeline. The pipeline
+  // records the actual send outcome (sent / failed / pending with
+  // provider-not-configured) and bumps `attempt_count` so a
+  // rebuild is visible in the audit trail.
+  const result = await dispatchNewOrderNotification(orderId, {
+    notificationId: (inserted as Record<string, unknown>).id as string,
+  });
+  if (result.kind === "ok") {
+    return { kind: "ok", notification: result.notification };
+  }
+  // The row exists even if the dispatch couldn't run. Re-read so
+  // the operator sees the live state instead of a fabricated
+  // success.
+  const { data: refreshed, error: refreshError } = await client
+    .from("order_notifications")
+    .select(
+      "id, status, recipient, attempt_count, last_attempted_at, last_error, sent_at",
+    )
+    .eq("id", (inserted as Record<string, unknown>).id as string)
+    .maybeSingle();
+  if (refreshError || !refreshed) {
+    return {
+      kind: "error",
+      message: "Notification row was created but the dispatch failed.",
+    };
+  }
+  return {
+    kind: "already_queued",
+    notification: rowToNotificationSummary(refreshed as Record<string, unknown>),
+  };
+}
+
 function mapGuardToAdminResult(
   guard: AdminGuardResult,
 ): AdminOrderListResult {
@@ -1269,7 +1445,21 @@ async function readOrderAsAdminDetail(
   }
   const mapped: OrderNotificationSummary[] = (
     (notifications ?? []) as unknown as Record<string, unknown>[]
-  ).map((row) => ({
+  ).map(rowToNotificationSummary);
+
+  return { kind: "ok", order, customerEmail, timeline, notifications: mapped };
+}
+
+/**
+ * Convert a raw `order_notifications` row from Supabase into the
+ * UI-friendly `OrderNotificationSummary` shape. Centralised so the
+ * admin detail read, the rebuild path, and any future surface (e.g.
+ * the customer order detail) always show the same fields.
+ */
+function rowToNotificationSummary(
+  row: Record<string, unknown>,
+): OrderNotificationSummary {
+  return {
     id: (row.id as string) ?? "",
     status: (row.status as "pending" | "sent" | "failed") ?? "pending",
     recipient: (row.recipient as string) ?? "",
@@ -1277,9 +1467,7 @@ async function readOrderAsAdminDetail(
     lastAttemptedAt: (row.last_attempted_at as string | null) ?? null,
     lastError: (row.last_error as string | null) ?? null,
     sentAt: (row.sent_at as string | null) ?? null,
-  }));
-
-  return { kind: "ok", order, customerEmail, timeline, notifications: mapped };
+  };
 }
 
 /**
