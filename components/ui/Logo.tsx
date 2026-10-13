@@ -16,7 +16,7 @@ export function Logo({ className, tone = "ink" }: Props) {
   return (
     <span
       className={cn(
-        "font-display text-lg uppercase tracking-[0.3em]",
+        "font-display text-lg uppercase tracking-[0.1em] min-[375px]:tracking-[0.2em] sm:tracking-[0.3em]",
         tone === "paper" ? "text-paper" : "text-ink",
         className,
       )}

@@ -94,7 +94,20 @@ export function MediaPlaceholder({
             )}
           />
           {kind === "video" ? "Video" : "Image"}
-          {label ? <span className="opacity-70">— {label}</span> : null}
+          {/*
+            The full "— {label}" caption is only shown when the
+            placeholder is large enough to contain it. On narrow
+            category cards (2-up grids on mobile) the caption is
+            truncated so the kind label stays readable and the
+            placeholder does not visually clip the caption at the
+            right edge. The full label is still announced to
+            assistive tech via the container's `aria-label`.
+          */}
+          {label ? (
+            <span className="hidden truncate opacity-70 sm:inline">
+              — {label}
+            </span>
+          ) : null}
         </div>
       ) : null}
       {children}

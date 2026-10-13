@@ -28,10 +28,18 @@ export function HomeHero({ config }: Props) {
 }
 
 function FullHero({ config }: Props) {
+  // The 16:9 aspect ratio gives a hero that's only ~200px tall on a
+  // 360px viewport, which is shorter than the text overlay itself
+  // (eyebrow + 2-line display heading + description + buttons). With
+  // the absolute overlay using `justify-end`, the overflowing text
+  // paints above the hero section and bleeds into the announcement
+  // bar / sticky header behind it. A mobile-only minimum height
+  // ensures the overlay always fits inside the hero without
+  // changing the desktop composition.
   return (
     <section
       aria-labelledby="home-hero-title"
-      className="relative isolate w-full bg-ink"
+      className="relative isolate w-full bg-ink min-h-[22rem] sm:min-h-0"
     >
       <VideoPlaceholder
         video={config.media}
@@ -39,7 +47,7 @@ function FullHero({ config }: Props) {
         className="w-full"
       />
       <div className="absolute inset-0 flex flex-col items-start justify-end">
-        <Container className="pb-12 sm:pb-16 lg:pb-20">
+        <Container className="pb-8 sm:pb-16 lg:pb-20">
           <div className="max-w-xl text-paper">
             {config.eyebrow ? (
               <p className="text-eyebrow uppercase text-paper/80">

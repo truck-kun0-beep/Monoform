@@ -151,24 +151,33 @@ export function SiteHeader() {
           "backdrop-blur supports-[backdrop-filter]:bg-paper/80",
         )}
       >
-        <div className="container-bleed flex h-header-mobile items-center justify-between gap-4 lg:h-header">
-          {/* Mobile menu trigger. */}
-          <div className="flex items-center gap-2 lg:hidden">
+        <div className="container-bleed flex h-header-mobile min-w-0 items-center justify-between gap-2 sm:gap-4 lg:h-header">
+          {/* Mobile menu trigger. The visible "Menu" label is hidden on
+              very narrow viewports so the trigger row never pushes the
+              header past the viewport width — the icon + aria-label
+              still identifies the control. */}
+          <div className="flex min-w-0 items-center gap-2 lg:hidden">
             <button
               type="button"
               onClick={openMobile}
-              className="inline-flex items-center gap-2 px-2 py-1 text-eyebrow uppercase text-ink transition-colors hover:text-ink-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
+              className="inline-flex shrink-0 items-center gap-2 px-2 py-1 text-eyebrow uppercase text-ink transition-colors hover:text-ink-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
               aria-label="Open menu"
               aria-expanded={mobileOpen}
               aria-controls="mobile-navigation"
             >
               <MenuIcon className="h-5 w-5" />
-              <span>Menu</span>
+              {/* The icon + aria-label are sufficient on mobile; the
+                  visible label would push the trigger row past the
+                  viewport on very narrow screens. */}
+              <span className="hidden">Menu</span>
             </button>
           </div>
 
-          {/* Wordmark on the left (desktop & mobile). */}
-          <div className="flex items-center lg:flex-none">
+          {/* Wordmark on the left (desktop & mobile). min-w-0 lets the
+              row compress at narrow widths without forcing horizontal
+              page scroll; the wordmark itself shrinks via the
+              tracking tweak in the Logo component. */}
+          <div className="flex min-w-0 items-center lg:flex-none">
             <Link
               href="/"
               aria-label="Home"
@@ -226,8 +235,9 @@ export function SiteHeader() {
             </ul>
           </nav>
 
-          {/* Utility actions. */}
-          <div className="flex items-center gap-1 sm:gap-2">
+          {/* Utility actions. min-w-0 lets the row compress on
+              narrow viewports so the trigger row never overflows. */}
+          <div className="flex min-w-0 items-center gap-1 sm:gap-2">
             <div className="hidden md:block">
               <CountryCurrencySelector />
             </div>
