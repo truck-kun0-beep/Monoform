@@ -16,17 +16,22 @@ and protected server actions.
 | Variable | Scope | Description |
 | --- | --- | --- |
 | `NEXT_PUBLIC_SUPABASE_URL` | public | Your Supabase project URL, e.g. `https://abc.supabase.co` |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | public | The publishable anon key from the project settings |
-| `NEXT_PUBLIC_SITE_URL` | public | Public storefront URL. Used for Supabase email callback URLs |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | public | The **publishable** key from the project settings (canonical name in the current Supabase dashboard). |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | public (legacy) | The **anon** key — the older name for the same publishable token. Still honoured as a fallback so projects that have not migrated to the new naming keep working. When both are set the publishable key wins. |
+| `NEXT_PUBLIC_SITE_URL` | public | Public storefront URL. Used for Supabase email callback URLs. |
 
 Copy `.env.example` to `.env.local` and replace the placeholder
 values. The auth pages render an honest "setup required" state when
-either variable is missing — they never claim that the integration
-works without real credentials.
+either variable is missing or still a placeholder — they never
+claim that the integration works without real credentials.
 
 The service-role key is **never** imported anywhere in this app.
 Privileged writes to the `customer_profiles` table happen only via
-SQL functions that the service role owns.
+SQL functions that the service role owns. The application also
+refuses to construct a public client if a value that looks like a
+service-role / secret key (`sb_secret_…`, `sbp_…`, or a JWT with a
+`role: "service_role"` claim) is supplied through either of the
+`NEXT_PUBLIC_SUPABASE_*_KEY` variables.
 
 ## 2. Required Supabase dashboard settings
 
@@ -45,9 +50,9 @@ following:
      - `https://monoform.example/reset-password` (production)
 4. **Authentication → Email → Confirm email** — leave it on if you
    want verification, or off for instant sign-up. The registration
-   form handles both: when the provider returns a session the user is
-   signed in immediately, otherwise we display a "check your email"
-   message.
+   form handles both: when the provider returns a session the user
+   is signed in immediately, otherwise we display a "check your
+   email" message.
 
 After changing any of these settings, restart the Next.js dev
 server so the new redirect URLs are picked up.
@@ -93,12 +98,30 @@ the page displays a "check your email" notice. When confirmation is
 disabled the user is signed in immediately and the page navigates
 to the validated `redirect` query parameter (default `/account`).
 
+The form tracks these outcomes through an explicit
+`status` discriminator on the action's success result
+(`"verification_pending"` vs `"signed_in"`). The initial state of
+the form is the shared `{ ok: false, error: "" }` sentinel — the
+"check your email" panel is never shown until the action
+genuinely returns `status: "verification_pending"`. The form also
+rejects any value that looks like a service-role key in the
+public env vars before it even starts, so a misconfigured
+deployment surfaces the setup notice rather than a fake success
+state.
+
 ### Login (`/login`)
 
 `signInAction` calls `supabase.auth.signInWithPassword`. The cookie
 returned by the provider is read by the middleware and the
 `AuthProvider` on every subsequent request, so the header account
 menu and the cart checkout CTA update without a manual refresh.
+
+A successful sign-in is reported as
+`{ ok: true, status: "signed_in", redirectTo }`; any failure
+(bad credentials, network, or unconfigured) is reported as
+`{ ok: false, error }`. The form only navigates when the action
+returns the explicit `signed_in` status, so a misconfigured
+deployment never redirects the user on a fake success.
 
 ### Forgot password (`/forgot-password`)
 
@@ -108,12 +131,23 @@ menu and the cart checkout CTA update without a manual refresh.
 neutral "check your email" message — we never reveal whether the
 address has an account.
 
+The message is gated on the action returning
+`{ ok: true, status: "request_submitted" }`. The initial form
+state cannot satisfy this branch, so the message is never shown
+before the user has actually submitted a valid email address and
+the Supabase call has genuinely accepted the request.
+
 ### Reset password (`/reset-password`)
 
 Supabase's recovery link lands on this page and the SDK picks up the
 session from the URL. The form calls
 `supabase.auth.updateUser({ password })` and, on success, redirects
 to `/login` so the customer can sign in with their new password.
+
+The success path is reported as
+`{ ok: true, status: "password_updated", redirectTo: "/login" }`,
+and the "Password updated" panel only renders when the action
+returns that status.
 
 If the page is opened without a recovery session (expired link,
 already used, or just typed in the URL) the form is replaced with
@@ -185,8 +219,11 @@ is the responsibility of that later prompt.
 
 ## 9. Local testing recipe
 
-1. Create a Supabase project and copy the project URL and anon key
-   into `.env.local`.
+1. Create a Supabase project and copy the project URL and
+   **publishable** key (Project Settings → API → "Publishable
+   key") into `.env.local` as `NEXT_PUBLIC_SUPABASE_URL` and
+   `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. The legacy
+   `NEXT_PUBLIC_SUPABASE_ANON_KEY` is also accepted.
 2. Apply the `0001_customer_profiles.sql` migration through the
    Supabase SQL editor.
 3. Set `Site URL` to `http://localhost:3000` in

@@ -11,6 +11,7 @@ import {
   TextField,
 } from "@/components/auth";
 import {
+  initialAuthActionResult,
   isSupabaseConfigured,
   signInAction,
   type AuthActionResult,
@@ -21,12 +22,14 @@ type Props = {
   redirectTo: string;
 };
 
-const initialState: AuthActionResult = { ok: true };
-
 /**
  * Login form. Submits to the server action and renders any
  * validation / provider errors inline. On success, the router
  * navigates to the validated `redirectTo`.
+ *
+ * The initial state is the shared `{ ok: false, error: "" }`
+ * sentinel so the success branch only fires on a real action
+ * return.
  */
 export function LoginForm({ redirectTo }: Props) {
   const router = useRouter();
@@ -37,11 +40,11 @@ export function LoginForm({ redirectTo }: Props) {
     ): Promise<AuthActionResult> => {
       return signInAction(form);
     },
-    initialState,
+    initialAuthActionResult,
   );
 
   useEffect(() => {
-    if (state.ok && state.redirectTo) {
+    if (state.ok && state.status === "signed_in" && state.redirectTo) {
       router.push(state.redirectTo);
       router.refresh();
     }
@@ -56,7 +59,7 @@ export function LoginForm({ redirectTo }: Props) {
 
       {!configured ? <AuthNotConfiguredNotice /> : null}
 
-      {state.ok === false ? (
+      {state.ok === false && state.error ? (
         <AuthMessage tone="error" title="Sign in failed">
           {state.error}
         </AuthMessage>

@@ -20,8 +20,13 @@ export function AuthNotConfiguredNotice() {
         </code>
         and
         <code className="mx-1 border border-line bg-paper px-1.5 py-0.5 font-mono text-[11px]">
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+        </code>{" "}
+        (or the legacy{" "}
+        <code className="mx-1 border border-line bg-paper px-1.5 py-0.5 font-mono text-[11px]">
           NEXT_PUBLIC_SUPABASE_ANON_KEY
         </code>
+        )
         to your environment, then restart the dev server. See
         {" "}
         <Link

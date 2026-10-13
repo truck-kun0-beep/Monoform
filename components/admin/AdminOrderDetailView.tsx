@@ -16,6 +16,7 @@ import { AdminOrderStatusForm } from "./AdminOrderStatusForm";
 import { AdminPaymentStatusForm } from "./AdminPaymentStatusForm";
 import { AdminNotificationRetryButton } from "./AdminNotificationRetryButton";
 import { orderStatusTone, paymentStatusTone } from "./AdminOrdersTable";
+import { CopyButton } from "@/components/ui";
 
 type Props = {
   order: OrderDetail;
@@ -71,7 +72,10 @@ function OrderHeader({
           <p className="text-eyebrow uppercase text-ink-muted">Order</p>
           <p className="mt-1 flex items-center gap-3 text-display-md text-ink">
             <span>#{order.number}</span>
-            <CopyButton value={order.number} />
+            <CopyButton
+              value={order.number}
+              label={`Copy order number ${order.number}`}
+            />
           </p>
         </div>
         <Badge tone={orderStatusTone(order.status)}>
@@ -379,23 +383,6 @@ function Field({ label, value }: { label: string; value: string }) {
       <dt className="text-eyebrow uppercase text-ink-subtle">{label}</dt>
       <dd className="mt-1 text-sm text-ink break-words">{value || "—"}</dd>
     </div>
-  );
-}
-
-function CopyButton({ value }: { value: string }) {
-  return (
-    <button
-      type="button"
-      className="text-eyebrow uppercase text-ink-muted transition-colors hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
-      onClick={() => {
-        if (typeof navigator !== "undefined" && navigator.clipboard) {
-          void navigator.clipboard.writeText(value).catch(() => undefined);
-        }
-      }}
-      aria-label={`Copy order number ${value}`}
-    >
-      Copy
-    </button>
   );
 }
 

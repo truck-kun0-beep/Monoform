@@ -4,6 +4,16 @@ import { createSupabaseServerClient } from "./server";
 import { buildLoginUrl } from "./redirects";
 import type { AuthUser } from "./types";
 
+let injectedCurrentUser: AuthUser | null | undefined;
+
+/**
+ * Test-only injection point for `getCurrentUser`. The test suite
+ * calls this with a fixed user; production code never touches it.
+ */
+export function __setCurrentUserForTesting(user: AuthUser | null): void {
+  injectedCurrentUser = user;
+}
+
 /**
  * Resolve the currently authenticated user.
  *
@@ -12,6 +22,7 @@ import type { AuthUser } from "./types";
  * this to short-circuit unauthenticated requests without throwing.
  */
 export async function getCurrentUser(): Promise<AuthUser | null> {
+  if (injectedCurrentUser !== undefined) return injectedCurrentUser;
   const client = await createSupabaseServerClient();
   if (!client) return null;
   const {

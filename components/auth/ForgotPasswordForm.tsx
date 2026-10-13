@@ -9,16 +9,17 @@ import {
 } from "@/components/auth";
 import {
   forgotPasswordAction,
+  initialAuthActionResult,
   isSupabaseConfigured,
   type AuthActionResult,
 } from "@/lib/auth/react";
 
-const initialState: AuthActionResult = { ok: true };
-
 /**
- * Forgot password form. On success, displays a neutral message
- * that does not reveal whether the email is registered — the
- * provider always returns success in the happy path.
+ * Forgot password form. The neutral "check your email" message is
+ * only shown when the action actually accepted the reset request
+ * (`status: "request_submitted"`) — not before. We never reveal
+ * whether the email has an account, so the copy is intentionally
+ * generic.
  */
 export function ForgotPasswordForm() {
   const [state, formAction] = useActionState(
@@ -28,13 +29,13 @@ export function ForgotPasswordForm() {
     ): Promise<AuthActionResult> => {
       return forgotPasswordAction(form);
     },
-    initialState,
+    initialAuthActionResult,
   );
 
   const fieldErrors = !state.ok ? state.fieldErrors ?? {} : {};
   const configured = isSupabaseConfigured();
 
-  if (state.ok) {
+  if (state.ok && state.status === "request_submitted") {
     return (
       <AuthMessage tone="info" title="Check your email">
         <p>
@@ -57,9 +58,11 @@ export function ForgotPasswordForm() {
       aria-label="Forgot password form"
     >
       {!configured ? <AuthNotConfiguredNotice /> : null}
-      <AuthMessage tone="error" title="Something went wrong">
-        {state.error}
-      </AuthMessage>
+      {state.ok === false && state.error ? (
+        <AuthMessage tone="error" title="Something went wrong">
+          {state.error}
+        </AuthMessage>
+      ) : null}
 
       <TextField
         label="Email"

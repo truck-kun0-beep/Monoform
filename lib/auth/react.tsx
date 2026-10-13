@@ -21,7 +21,13 @@ export {
   isSafeInternalPath,
   resolveRedirectTarget,
 } from "./redirects";
-export type { AuthActionResult, AuthUser, CustomerProfile } from "./types";
+export type {
+  AuthActionResult,
+  AuthActionSuccessStatus,
+  AuthUser,
+  CustomerProfile,
+} from "./types";
+export { initialAuthActionResult } from "./types";
 export {
   PASSWORD_MIN_LENGTH,
   normaliseBdPhone,

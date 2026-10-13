@@ -38,6 +38,9 @@ async function getClient() {
   return createSupabaseServerClient();
 }
 
+const NOT_CONFIGURED_MESSAGE =
+  "Authentication is not configured. Add Supabase credentials to your environment.";
+
 /* ------------------------------------------------------------------ *
  * Sign in
  * ------------------------------------------------------------------ */
@@ -57,11 +60,7 @@ export async function signInAction(form: FormData): Promise<AuthActionResult> {
 
   const client = await getClient();
   if (!client) {
-    return {
-      ok: false,
-      error:
-        "Authentication is not configured. Add Supabase credentials to your environment.",
-    };
+    return { ok: false, error: NOT_CONFIGURED_MESSAGE };
   }
 
   const { error } = await client.auth.signInWithPassword({
@@ -73,7 +72,7 @@ export async function signInAction(form: FormData): Promise<AuthActionResult> {
     return { ok: false, error: sanitiseAuthError(error.message), fieldErrors: {} };
   }
 
-  return { ok: true, redirectTo };
+  return { ok: true, status: "signed_in", redirectTo };
 }
 
 /* ------------------------------------------------------------------ *
@@ -109,11 +108,7 @@ export async function registerAction(form: FormData): Promise<AuthActionResult> 
 
   const client = await getClient();
   if (!client) {
-    return {
-      ok: false,
-      error:
-        "Authentication is not configured. Add Supabase credentials to your environment.",
-    };
+    return { ok: false, error: NOT_CONFIGURED_MESSAGE };
   }
 
   const fullName = `${firstName.trim()} ${lastName.trim()}`.trim();
@@ -132,13 +127,22 @@ export async function registerAction(form: FormData): Promise<AuthActionResult> 
     return { ok: false, error: sanitiseAuthError(error.message), fieldErrors: {} };
   }
 
-  // When the provider returns a session, the user is already
-  // signed in (e.g. email verification is disabled). Otherwise we
-  // surface a verification-pending message on the registration page.
-  if (data.session) {
-    return { ok: true, redirectTo };
+  // Supabase returns a `user` even when email confirmation is on
+  // (the user is just not signed in yet). We treat a populated
+  // user + no error as the success boundary — the form then asks
+  // the SDK for a session in its own post-submit path so the
+  // verification-vs-instant branch is taken on the client.
+  if (!data.user) {
+    return {
+      ok: false,
+      error: "Sign up did not return a user. Please try again.",
+    };
   }
-  return { ok: true };
+
+  if (data.session) {
+    return { ok: true, status: "signed_in", redirectTo };
+  }
+  return { ok: true, status: "verification_pending" };
 }
 
 /* ------------------------------------------------------------------ *
@@ -158,11 +162,7 @@ export async function forgotPasswordAction(
 
   const client = await getClient();
   if (!client) {
-    return {
-      ok: false,
-      error:
-        "Authentication is not configured. Add Supabase credentials to your environment.",
-    };
+    return { ok: false, error: NOT_CONFIGURED_MESSAGE };
   }
 
   const siteUrl = getSiteUrl();
@@ -174,7 +174,7 @@ export async function forgotPasswordAction(
   if (error) {
     return { ok: false, error: sanitiseAuthError(error.message), fieldErrors: {} };
   }
-  return { ok: true };
+  return { ok: true, status: "request_submitted" };
 }
 
 /* ------------------------------------------------------------------ *
@@ -198,11 +198,7 @@ export async function resetPasswordAction(
 
   const client = await getClient();
   if (!client) {
-    return {
-      ok: false,
-      error:
-        "Authentication is not configured. Add Supabase credentials to your environment.",
-    };
+    return { ok: false, error: NOT_CONFIGURED_MESSAGE };
   }
 
   const { error } = await client.auth.updateUser({ password });
@@ -211,7 +207,7 @@ export async function resetPasswordAction(
     return { ok: false, error: sanitiseAuthError(error.message), fieldErrors: {} };
   }
 
-  return { ok: true, redirectTo: "/login" };
+  return { ok: true, status: "password_updated", redirectTo: "/login" };
 }
 
 /* ------------------------------------------------------------------ *

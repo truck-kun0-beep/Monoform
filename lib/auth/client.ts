@@ -15,6 +15,6 @@ export function getSupabaseBrowserClient(): SupabaseClient | null {
   if (cached) return cached;
   const env = getSupabaseEnv();
   if (!env) return null;
-  cached = createBrowserClient(env.url, env.anonKey);
+  cached = createBrowserClient(env.url, env.publishableKey);
   return cached;
 }

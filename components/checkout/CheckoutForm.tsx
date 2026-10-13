@@ -38,7 +38,10 @@ import { findProductById } from "@/lib/products";
 export function CheckoutForm() {
   const router = useRouter();
   const { lines, subtotal, itemCount, clear } = useCart();
-  const [state, formAction] = useActionState<PlaceOrderActionResult, FormData>(
+  const [state, formAction, isPending] = useActionState<
+    PlaceOrderActionResult,
+    FormData
+  >(
     async (_prev, form) => placeOrderAction(form),
     { ok: false, error: "" } as PlaceOrderActionResult,
   );
@@ -47,18 +50,23 @@ export function CheckoutForm() {
   const lastOkRef = useRef<typeof state | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<OrderPaymentMethod>("cod");
 
-  // Generate a stable per-tab idempotency key. The form reuses the
-  // same key on every submission so a network retry of the *same*
-  // place-order request never creates a duplicate order, while
-  // changes to the address or bag produce a new key.
-  const [idempotencyKey, setIdempotencyKey] = useState<string>("");
-  useEffect(() => {
-    setIdempotencyKey(
-      `checkout-${Date.now().toString(36)}-${Math.random()
-        .toString(36)
-        .slice(2, 10)}`,
-    );
-  }, []);
+  // Generate a stable per-tab idempotency key on FIRST RENDER (not
+  // in a useEffect, which would run after the first paint and let a
+  // rapid first click submit an empty value, triggering the
+  // server-side fallback key — and a duplicate order).
+  //
+  // The key is stored in a ref so every submission in the same
+  // page-load reuses it. The server-side `placeOrder` function
+  // dedupes on (user_id, idempotency_key) and on
+  // (user_id, idempotency_hash) inside a short window, so a
+  // page-reload retry with a new key is also caught.
+  const idempotencyKeyRef = useRef<string>("");
+  if (idempotencyKeyRef.current === "") {
+    idempotencyKeyRef.current = `checkout-${Date.now().toString(36)}-${Math.random()
+      .toString(36)
+      .slice(2, 10)}`;
+  }
+  const idempotencyKey = idempotencyKeyRef.current;
 
   // Subtotal + delivery preview. Authoritative values are
   // recomputed on the server when the order is placed.
@@ -325,7 +333,11 @@ export function CheckoutForm() {
         itemCount={itemCount}
       />
 
-      <SubmitButton itemCount={itemCount} disabled={isBagEmpty} />
+      <SubmitButton
+        itemCount={itemCount}
+        disabled={isBagEmpty || isPending}
+        pending={isPending}
+      />
 
       <p className="text-xs text-ink-muted">
         By placing this order you agree to the{" "}
@@ -468,9 +480,11 @@ function PreviewRow({
 function SubmitButton({
   itemCount,
   disabled,
+  pending,
 }: {
   itemCount: number;
   disabled: boolean;
+  pending: boolean;
 }) {
   return (
     <div className="flex flex-col gap-2">
@@ -479,8 +493,9 @@ function SubmitButton({
         size="lg"
         fullWidth
         disabled={disabled || itemCount === 0}
+        loading={pending}
       >
-        Place Order
+        {pending ? "Placing your order…" : "Place Order"}
       </Button>
       <p className="text-[11px] uppercase tracking-[0.18em] text-ink-subtle">
         Placing an order commits the items in your bag and clears them on

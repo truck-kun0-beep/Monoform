@@ -162,8 +162,28 @@ export function NewsletterForm({
       <input type="hidden" name="source" value={source} />
       {userId ? <input type="hidden" name="userId" value={userId} /> : null}
 
-      <div className={cn("flex gap-3", isInline ? "flex-col" : "flex-col sm:flex-row sm:items-start")}>
-        <div className="flex-1 text-left">
+      {/*
+        Input + button row.
+
+        The `inline` variant is always a single column (used by
+        the footer, which lives in a narrow `lg:col-span-2`
+        column). The `stacked` variant is a column on mobile and
+        a row on `sm` and up (used by the homepage, which lives
+        in a wide centred column).
+
+        The input wrapper has `min-w-0` so the flex item can
+        shrink inside the row layout without forcing the input
+        to overflow. The input itself is `w-full` with default
+        text-input scrolling, so long email addresses scroll
+        inside the field rather than being clipped.
+      */}
+      <div
+        className={cn(
+          "flex gap-3",
+          isInline ? "flex-col" : "flex-col sm:flex-row sm:items-start",
+        )}
+      >
+        <div className="min-w-0 flex-1 text-left">
           <label htmlFor={inputId} className="sr-only">
             Email address
           </label>
@@ -180,6 +200,7 @@ export function NewsletterForm({
             disabled={isSubmitting}
             hideLabel
             error={fieldError ?? undefined}
+            className="w-full min-w-0"
           />
         </div>
         <Button

@@ -69,7 +69,7 @@ export function Footer() {
               <NewsletterForm
                 heading="Newsletter"
                 source="footer"
-                variant="stacked"
+                variant="inline"
                 submitLabel="Subscribe"
                 className="text-left"
               />

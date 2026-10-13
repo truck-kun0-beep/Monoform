@@ -11,6 +11,7 @@ import {
   TextField,
 } from "@/components/auth";
 import {
+  initialAuthActionResult,
   isSupabaseConfigured,
   PASSWORD_MIN_LENGTH,
   registerAction,
@@ -21,13 +22,16 @@ type Props = {
   redirectTo: string;
 };
 
-const initialState: AuthActionResult = { ok: true };
-
 /**
  * Registration form. Submits to the server action. When the
  * provider returns a session the user is signed in immediately
  * (verification disabled); otherwise we display a verification
  * pending message and don't auto-redirect.
+ *
+ * The initial state is the shared `{ ok: false, error: "" }`
+ * sentinel, so the success branches only fire on a real action
+ * return — they never show "Check your email" before the user
+ * has actually submitted.
  */
 export function RegisterForm({ redirectTo }: Props) {
   const router = useRouter();
@@ -38,19 +42,21 @@ export function RegisterForm({ redirectTo }: Props) {
     ): Promise<AuthActionResult> => {
       return registerAction(form);
     },
-    initialState,
+    initialAuthActionResult,
   );
 
   useEffect(() => {
-    if (state.ok && state.redirectTo) {
+    if (state.ok && state.status === "signed_in" && state.redirectTo) {
       router.push(state.redirectTo);
       router.refresh();
     }
   }, [state, router]);
 
-  // Track when we have shown the verification-pending state so the
-  // form can be replaced with a static "check your inbox" message.
-  const showVerificationPending = state.ok && !state.redirectTo;
+  // The "verification email sent" panel is shown only when the
+  // action actually returned a verification-pending success —
+  // not before, and not on a config error.
+  const showVerificationPending =
+    state.ok && state.status === "verification_pending";
 
   const fieldErrors = !state.ok ? state.fieldErrors ?? {} : {};
   const configured = isSupabaseConfigured();
@@ -82,7 +88,7 @@ export function RegisterForm({ redirectTo }: Props) {
     >
       <input type="hidden" name="redirect" value={redirectTo} />
       {!configured ? <AuthNotConfiguredNotice /> : null}
-      {state.ok === false ? (
+      {state.ok === false && state.error ? (
         <AuthMessage tone="error" title="Could not create account">
           {state.error}
         </AuthMessage>

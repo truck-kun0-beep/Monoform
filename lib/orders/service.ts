@@ -38,6 +38,8 @@ import {
   takaToPaisa,
 } from "./config";
 import { dispatchNewOrderNotification } from "./notifications";
+import { logOrderEvent, summariseSupabaseError } from "./diagnostics";
+import { resolveNotificationRecipient } from "./recipient";
 
 /* ------------------------------------------------------------------ *
  * Service-role client
@@ -51,6 +53,18 @@ import { dispatchNewOrderNotification } from "./notifications";
  */
 
 let cachedServiceClient: SupabaseClient | null = null;
+
+/**
+ * Test-only injection point. Lets the test suite swap the cached
+ * service-role client for an in-memory mock. Not exported on
+ * `@/lib/orders` (the public surface) so production code paths
+ * cannot reach it.
+ */
+export function __setServiceClientForTesting(
+  client: SupabaseClient | null,
+): void {
+  cachedServiceClient = client;
+}
 
 function getServiceClient(): SupabaseClient | null {
   if (cachedServiceClient) return cachedServiceClient;
@@ -307,7 +321,7 @@ export async function lookupOrderForTracking(
   const { data, error } = await client
     .from("orders")
     .select(
-      "id, order_number, created_at, order_status, payment_method, payment_status, total_paisa, currency, phone, district, locality, delivery_zone, courier_name, courier_tracking_number, courier_tracking_url, courier_dispatched_at, courier_estimated_delivery_at",
+      "id, order_number, created_at, order_status, payment_method, payment_status, total_paisa, currency, phone, district, locality, delivery_zone",
     )
     .eq("order_number", number)
     .maybeSingle();
@@ -420,10 +434,31 @@ export async function placeOrder(
     return { kind: "ok", order: existing.detail };
   }
 
+  // Defence-in-depth: if a previous submission with identical
+  // content landed under a different key (e.g. the customer
+  // reloaded the page between clicks), catch the retry and return
+  // the original order instead of creating a duplicate.
+  const recentByHash = await findRecentIdempotentOrderByHash(
+    client,
+    user.id,
+    idempotencyHash,
+  );
+  if (recentByHash) {
+    logOrderEvent("info", "duplicate_attempt_caught_by_hash", {
+      userId: user.id,
+      matchedOrderId: recentByHash.detail.id,
+    });
+    return { kind: "ok", order: recentByHash.detail };
+  }
+
   const { data: numberRow, error: numberError } = await client.rpc(
     "next_order_number",
   );
   if (numberError || !numberRow) {
+    logOrderEvent("error", "order_number_rpc_failed", {
+      userId: user.id,
+      ...summariseSupabaseError(numberError),
+    });
     return { kind: "error", message: "Could not generate an order number." };
   }
   const orderNumber = String(numberRow);
@@ -465,6 +500,10 @@ export async function placeOrder(
     // A unique-constraint violation on idempotency_key is the expected
     // race for two concurrent placements. Re-read the existing row.
     if (orderError?.code === "23505") {
+      logOrderEvent("info", "order_insert_idempotency_race", {
+        userId: user.id,
+        ...summariseSupabaseError(orderError),
+      });
       const again = await findIdempotentOrder(
         client,
         user.id,
@@ -477,10 +516,38 @@ export async function placeOrder(
         return { kind: "ok", order: again.detail };
       }
     }
+    logOrderEvent("error", "order_insert_failed", {
+      userId: user.id,
+      ...summariseSupabaseError(orderError),
+    });
     return { kind: "error", message: "Could not place your order." };
   }
 
   const orderId = orderRow.id as string;
+
+  // Final defence against concurrent duplicate placements with
+  // different keys but identical content. A second concurrent
+  // request may have committed an order with the same hash while
+  // we were inserting; re-check now and roll back the just-written
+  // row if so. The unique index on (user_id, idempotency_key)
+  // cannot help here because the keys differ.
+  const winnerByHash = await findRecentIdempotentOrderByHash(
+    client,
+    user.id,
+    idempotencyHash,
+    { now: Date.now() },
+  );
+  if (winnerByHash && winnerByHash.detail.id !== orderId) {
+    logOrderEvent("warn", "concurrent_duplicate_recovered", {
+      userId: user.id,
+      insertedOrderId: orderId,
+      winningOrderId: winnerByHash.detail.id,
+    });
+    // The winning order wins. The orphaned row we just inserted is
+    // removed so the customer only ever sees the winning order.
+    await client.from("orders").delete().eq("id", orderId);
+    return { kind: "ok", order: winnerByHash.detail };
+  }
 
   const itemRows = input.lines.map((line) => {
     const product = findProductById(line.productId);
@@ -505,10 +572,25 @@ export async function placeOrder(
     .from("order_items")
     .insert(itemRows);
   if (itemsError) {
-    // The order was inserted but its items failed; surface the error
-    // and rely on the operator to clean up. Returning here keeps the
-    // contract: either everything commits or we report a failure.
-    return { kind: "error", message: "Could not save order items." };
+    // The order row was inserted but its items failed. The order
+    // exists in the database; reporting a generic failure would
+    // tell the customer to retry, which would create a duplicate
+    // order with a *different* idempotency key (the same key would
+    // be caught by the unique index). Return a best-effort detail
+    // built from the data we already have so the customer is taken
+    // to the confirmation page and the operator can reconcile the
+    // missing items manually.
+    logOrderEvent("error", "order_items_insert_failed", {
+      orderId,
+      ...summariseSupabaseError(itemsError),
+    });
+    return {
+      kind: "ok",
+      order: buildOrderDetailFromInsertedRow(
+        orderRow as Record<string, unknown>,
+        [], // no items were persisted
+      ),
+    };
   }
 
   const { error: historyError } = await client
@@ -524,20 +606,67 @@ export async function placeOrder(
   if (historyError) {
     // History is audit-only; an insertion failure should not block
     // the order from completing.
+    logOrderEvent("warn", "order_status_history_insert_failed", {
+      orderId,
+      ...summariseSupabaseError(historyError),
+    });
   }
 
   // Notification outbox row. The actual email delivery is performed
   // by the notification service after the order is committed.
-  await client.from("order_notifications").insert({
-    order_id: orderId,
-    notification_type: "new_order_owner",
-    recipient: process.env.STORE_ORDER_NOTIFICATION_EMAIL ?? "",
-    status: "pending",
-  });
+  //
+  // When `STORE_ORDER_NOTIFICATION_EMAIL` is missing or still a
+  // placeholder we intentionally skip the outbox insert. Inserting
+  // a row with an empty recipient would (a) violate the column's
+  // not-null contract semantically, (b) leave a `pending` row the
+  // operator can never act on, and (c) hide the missing
+  // configuration. The order is still committed — notification is
+  // a separate, best-effort concern.
+  const recipient = resolveNotificationRecipient(
+    process.env.STORE_ORDER_NOTIFICATION_EMAIL,
+  );
+  if (recipient.kind === "missing") {
+    logOrderEvent("warn", "notification_recipient_missing", {
+      orderId,
+      reason: recipient.reason,
+    });
+  } else {
+    const { error: notifInsertError } = await client
+      .from("order_notifications")
+      .insert({
+        order_id: orderId,
+        notification_type: "new_order_owner",
+        recipient: recipient.value,
+        status: "pending",
+      });
+    if (notifInsertError) {
+      // The order is already committed. Log the failure so the
+      // operator can rebuild the outbox row, but do NOT roll back
+      // the order and do NOT report a customer-facing error.
+      logOrderEvent("error", "notification_outbox_insert_failed", {
+        orderId,
+        ...summariseSupabaseError(notifInsertError),
+      });
+    }
+  }
 
+  // The order is committed at this point. Build the response detail
+  // from the in-memory data we already have so a transient or
+  // schema-related failure in the follow-up read cannot make a
+  // successfully-committed order appear to have failed.
   const detail = await readOrderAsDetail(client, orderId, user.id);
   if (!detail) {
-    return { kind: "error", message: "Could not load the created order." };
+    logOrderEvent("error", "post_commit_readback_failed", {
+      orderId,
+      userId: user.id,
+    });
+    return {
+      kind: "ok",
+      order: buildOrderDetailFromInsertedRow(
+        orderRow as Record<string, unknown>,
+        itemRows,
+      ),
+    };
   }
 
   // Best-effort: attempt to dispatch the email immediately. Failures
@@ -691,6 +820,44 @@ async function findIdempotentOrder(
     .select("id, idempotency_hash")
     .eq("user_id", userId)
     .eq("idempotency_key", key)
+    .maybeSingle();
+  if (error || !data) return null;
+  const detail = await readOrderAsDetail(client, data.id as string, userId);
+  if (!detail) return null;
+  return { detail, idempotency_hash: (data.idempotency_hash as string) ?? "" };
+}
+
+/**
+ * Defence-in-depth against duplicates that arrive with a fresh
+ * `idempotency_key` (e.g. the customer reloaded the page) but the
+ * exact same content. The unique key check has already failed; we
+ * catch the retry by content within a short window and return the
+ * original order instead of creating a second one.
+ *
+ * The window is deliberately small (10 minutes) — long enough to
+ * cover a slow retry or a reload, short enough that two genuinely
+ * separate purchases from the same customer with identical items
+ * (e.g. two identical gifts in the same hour) are not silently
+ * collapsed into one.
+ */
+const RECENT_HASH_WINDOW_MS = 10 * 60 * 1000;
+
+async function findRecentIdempotentOrderByHash(
+  client: SupabaseClient,
+  userId: string,
+  hash: string,
+  options: { now?: number; windowMs?: number } = {},
+): Promise<{ detail: OrderDetail; idempotency_hash: string } | null> {
+  const windowMs = options.windowMs ?? RECENT_HASH_WINDOW_MS;
+  const since = new Date((options.now ?? Date.now()) - windowMs).toISOString();
+  const { data, error } = await client
+    .from("orders")
+    .select("id, idempotency_hash, created_at")
+    .eq("user_id", userId)
+    .eq("idempotency_hash", hash)
+    .gte("created_at", since)
+    .order("created_at", { ascending: false })
+    .limit(1)
     .maybeSingle();
   if (error || !data) return null;
   const detail = await readOrderAsDetail(client, data.id as string, userId);
@@ -999,7 +1166,7 @@ function mapGuardToRetryNotification(
   return { kind: "not_configured" };
 }
 
-function isValidTransitionId(value: string): boolean {
+export function isValidTransitionId(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
     value,
   );
@@ -1021,7 +1188,17 @@ async function readOrder(
     .eq("id", id)
     .eq("user_id", scope.userId)
     .maybeSingle();
-  if (error || !data) return { kind: "not_found" };
+  if (error) {
+    logOrderEvent("error", "order_detail_read_failed", {
+      orderId: id,
+      ...summariseSupabaseError(error),
+    });
+    return {
+      kind: "error",
+      message: "Could not load the order.",
+    };
+  }
+  if (!data) return { kind: "not_found" };
   const row = data as unknown as Record<string, unknown>;
   const items = await fetchItems(client, id);
   const timeline = await fetchTimeline(client, id);
@@ -1059,7 +1236,21 @@ async function readOrderAsAdminDetail(
     .select(orderSelectColumns().join(", "))
     .eq("id", id)
     .maybeSingle();
-  if (error || !data) return { kind: "not_found" };
+  if (error) {
+    // A schema-level error (e.g. an unknown column in the SELECT
+    // list) is a *server* problem, not a missing order. Log it
+    // and surface a clear error to the operator rather than
+    // pretending the order does not exist.
+    logOrderEvent("error", "admin_order_detail_read_failed", {
+      orderId: id,
+      ...summariseSupabaseError(error),
+    });
+    return {
+      kind: "error",
+      message: "Could not load the order from the database.",
+    };
+  }
+  if (!data) return { kind: "not_found" };
   const row = data as unknown as Record<string, unknown>;
   const items = await fetchItems(client, id);
   const timeline = await fetchTimeline(client, id);
@@ -1091,7 +1282,25 @@ async function readOrderAsAdminDetail(
   return { kind: "ok", order, customerEmail, timeline, notifications: mapped };
 }
 
-function orderSelectColumns(): string[] {
+/**
+ * Column set used by every order-detail read (customer confirmation,
+ * admin detail, post-commit read-back in `placeOrder`, and the
+ * notification dispatcher).
+ *
+ * IMPORTANT — these columns are matched against the *live* schema
+ * in `supabase/migrations/0003_orders_and_admin.sql`. Adding a
+ * column to that migration must be reflected here. Adding a column
+ * here that does NOT exist in the schema will cause every order
+ * detail read to fail with PostgREST `42703 undefined_column`, which
+ * then surfaces to the customer as "Couldn't place your order." and
+ * to the admin as "Order not found." — the very bugs the regression
+ * tests for this service are designed to prevent.
+ *
+ * The column set intentionally does NOT include the courier
+ * tracking fields yet. Those are reserved for a future migration;
+ * selecting them now would break every read.
+ */
+export function orderSelectColumns(): string[] {
   return [
     "id",
     "order_number",
@@ -1117,11 +1326,6 @@ function orderSelectColumns(): string[] {
     "delivery_instructions",
     "bkash_reference",
     "cancelled_at",
-    "courier_name",
-    "courier_tracking_number",
-    "courier_tracking_url",
-    "courier_dispatched_at",
-    "courier_estimated_delivery_at",
   ];
 }
 
@@ -1263,6 +1467,65 @@ function rowToOrderItem(row: Record<string, unknown>): OrderItem {
       alt: alt ?? "Item",
       aspectRatio: aspect ?? 3 / 4,
     },
+  };
+}
+
+/**
+ * Build an `OrderDetail` from the in-memory data the
+ * `placeOrder` function already has, without issuing another
+ * database read.
+ *
+ * Used as a safety net when a follow-up read (the post-commit
+ * read-back in `placeOrder`, or the items insert) fails after
+ * the order row has already been committed. The customer must
+ * never be told their order failed once it is in the database,
+ * so we return enough data for the confirmation page to render
+ * using the in-memory snapshot.
+ */
+function buildOrderDetailFromInsertedRow(
+  orderRow: Record<string, unknown>,
+  itemRows: ReadonlyArray<Record<string, unknown>>,
+): OrderDetail {
+  const subtotal = paisaToTaka(orderRow.subtotal_paisa as number);
+  const delivery = paisaToTaka(orderRow.delivery_fee_paisa as number);
+  const total = paisaToTaka(orderRow.total_paisa as number);
+  const currency = ((orderRow.currency as string) ??
+    ORDER_CURRENCY) as OrderDetail["currency"];
+  const items: OrderItem[] = itemRows.map((r) => rowToOrderItem(r));
+  const address: OrderAddressSnapshot = {
+    recipientName: (orderRow.recipient_name as string) ?? "",
+    phone: (orderRow.phone as string) ?? "",
+    district: (orderRow.district as string) ?? "",
+    locality: (orderRow.locality as string | null) ?? null,
+    addressLine: (orderRow.address_line as string) ?? "",
+    additionalDetails: (orderRow.additional_details as string | null) ?? null,
+    postalCode: (orderRow.postal_code as string | null) ?? null,
+    deliveryZone: ((orderRow.delivery_zone as OrderAddressSnapshot["deliveryZone"]) ??
+      "inside_dhaka"),
+    deliveryInstructions:
+      (orderRow.delivery_instructions as string | null) ?? null,
+  };
+  return {
+    id: (orderRow.id as string) ?? "",
+    number: (orderRow.order_number as string) ?? "",
+    placedAt:
+      (orderRow.created_at as string) ?? new Date().toISOString(),
+    status: coerceOrderStatus(orderRow.order_status),
+    paymentMethod: coercePaymentMethod(orderRow.payment_method),
+    paymentStatus: coercePaymentStatus(orderRow.payment_status),
+    total: { amount: total, currency },
+    itemCount: items.reduce((acc, it) => acc + it.quantity, 0),
+    currency,
+    items,
+    subtotal: { amount: subtotal, currency },
+    deliveryFee: { amount: delivery, currency },
+    paymentReference: (orderRow.bkash_reference as string | null) ?? null,
+    shippingAddress: address,
+    courier: null,
+    timeline: [],
+    customerName: (orderRow.customer_name as string) ?? "",
+    customerPhone: (orderRow.customer_phone as string) ?? "",
+    customerEmail: (orderRow.customer_email as string | null) ?? "",
   };
 }
 

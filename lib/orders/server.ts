@@ -41,3 +41,4 @@ export {
   type AdminGuardResult,
   type TrackingLookupOptions,
 } from "./service";
+export { resolveNotificationRecipient, type NotificationRecipient } from "./recipient";

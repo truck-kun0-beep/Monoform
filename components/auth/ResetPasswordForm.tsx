@@ -10,13 +10,12 @@ import {
 } from "@/components/auth";
 import {
   getSupabaseBrowserClient,
+  initialAuthActionResult,
   isSupabaseConfigured,
   PASSWORD_MIN_LENGTH,
   resetPasswordAction,
   type AuthActionResult,
 } from "@/lib/auth/react";
-
-const initialState: AuthActionResult = { ok: true };
 
 /**
  * Reset password form.
@@ -25,6 +24,10 @@ const initialState: AuthActionResult = { ok: true };
  * detected. The session is established automatically when the user
  * clicks the recovery link in their email — Supabase writes the
  * tokens and the SDK picks them up on the next page load.
+ *
+ * The initial state is the shared `{ ok: false, error: "" }`
+ * sentinel so the success branches only fire on a real action
+ * return.
  */
 export function ResetPasswordForm() {
   const router = useRouter();
@@ -35,11 +38,11 @@ export function ResetPasswordForm() {
     ): Promise<AuthActionResult> => {
       return resetPasswordAction(form);
     },
-    initialState,
+    initialAuthActionResult,
   );
 
   useEffect(() => {
-    if (state.ok && state.redirectTo) {
+    if (state.ok && state.status === "password_updated" && state.redirectTo) {
       router.push(state.redirectTo);
       router.refresh();
     }
@@ -105,7 +108,7 @@ export function ResetPasswordForm() {
     );
   }
 
-  if (state.ok) {
+  if (state.ok && state.status === "password_updated") {
     return (
       <AuthMessage tone="success" title="Password updated">
         <p>
@@ -125,9 +128,11 @@ export function ResetPasswordForm() {
       className="flex flex-col gap-5"
       aria-label="Reset password form"
     >
-      <AuthMessage tone="error" title="Could not update password">
-        {state.error}
-      </AuthMessage>
+      {state.ok === false && state.error ? (
+        <AuthMessage tone="error" title="Could not update password">
+          {state.error}
+        </AuthMessage>
+      ) : null}
 
       <PasswordField
         label="New password"

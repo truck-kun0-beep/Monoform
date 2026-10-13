@@ -76,7 +76,7 @@ function ensureBackend(): AccountActionResult | null {
     return {
       ok: false,
       error:
-        "Account data is not connected to a Supabase project. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to your environment, then run the migrations in /supabase.",
+        "Account data is not connected to a Supabase project. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY (or the legacy NEXT_PUBLIC_SUPABASE_ANON_KEY) to your environment, then run the migrations in /supabase.",
     };
   }
   return null;
