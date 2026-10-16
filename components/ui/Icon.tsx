@@ -134,3 +134,23 @@ export function ArrowRightIcon(props: IconProps) {
     </Base>
   );
 }
+
+export function EyeIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
+      <circle cx="12" cy="12" r="3" />
+    </Base>
+  );
+}
+
+export function EyeOffIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path d="M3 3 21 21" />
+      <path d="M10.6 6.1A10.7 10.7 0 0 1 12 6c6.5 0 10 6 10 6a16 16 0 0 1-3.1 4.1" />
+      <path d="M6.1 6.1A16 16 0 0 0 2 12s3.5 6 10 6a10.7 10.7 0 0 0 5.4-1.4" />
+      <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
+    </Base>
+  );
+}

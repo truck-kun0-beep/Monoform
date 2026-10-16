@@ -101,6 +101,7 @@ export function RegisterForm({ redirectTo }: Props) {
           autoComplete="given-name"
           required
           maxLength={80}
+          placeholder="Asha"
           disabled={!configured}
           error={fieldErrors.firstName}
         />
@@ -110,6 +111,7 @@ export function RegisterForm({ redirectTo }: Props) {
           autoComplete="family-name"
           required
           maxLength={80}
+          placeholder="Khan"
           disabled={!configured}
           error={fieldErrors.lastName}
         />

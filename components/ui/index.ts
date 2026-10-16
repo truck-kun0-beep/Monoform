@@ -24,6 +24,8 @@ export {
   ChevronLeftIcon,
   ChevronRightIcon,
   CloseIcon,
+  EyeIcon,
+  EyeOffIcon,
   FilterIcon,
   MenuIcon,
   MinusIcon,
