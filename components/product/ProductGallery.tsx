@@ -186,7 +186,12 @@ function GalleryTile({
       <figure className="flex flex-col gap-2">
         <VideoPlaceholder
           video={{ ...item, alt: item.alt || `${productName} — video` }}
-          aspectRatio={aspectRatio}
+          // Product videos keep the same portrait frame on every
+          // viewport so the gallery grid stays uniform. We map the
+          // numeric `aspectRatio` to one of the four supported
+          // presets; the closest match wins.
+          mobileAspectRatio={numberToPreset(aspectRatio)}
+          desktopAspectRatio={numberToPreset(aspectRatio)}
         />
         <TileCaption item={item} index={index} />
       </figure>
@@ -214,4 +219,18 @@ function TileCaption({ item, index }: { item: ProductMedia; index: number }) {
       <span aria-hidden="true">{String(index + 1).padStart(2, "0")}</span>
     </figcaption>
   );
+}
+
+/**
+ * Map a numeric `aspectRatio` (width/height) to the closest
+ * supported `VideoPlaceholder` preset so the production CSS
+ * always contains the same fixed utility set.
+ */
+function numberToPreset(
+  ratio: number,
+): "3/4" | "4/5" | "1/1" | "video" {
+  if (Math.abs(ratio - 3 / 4) < 0.05) return "3/4";
+  if (Math.abs(ratio - 4 / 5) < 0.05) return "4/5";
+  if (Math.abs(ratio - 1) < 0.05) return "1/1";
+  return "video";
 }

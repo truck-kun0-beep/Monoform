@@ -55,6 +55,10 @@ const placeholderSrc = readFileSync(
   new URL("../components/media/MediaPlaceholder.tsx", import.meta.url),
   "utf8",
 );
+const videoSrc = readFileSync(
+  new URL("../components/media/VideoPlaceholder.tsx", import.meta.url),
+  "utf8",
+);
 
 test("SiteHeader trigger row uses min-w-0 so flex children can shrink on narrow viewports", () => {
   // The container-bleed row must allow its children to compress
@@ -112,18 +116,22 @@ test("Logo uses tighter tracking on mobile so the wordmark fits at 320px", () =>
   );
 });
 
-test("FullHero uses a mobile-only minimum height so the text overlay fits", () => {
-  // The hero section must include a mobile-only `min-h-[…]` so
-  // the absolute text overlay always fits inside the hero on
-  // mobile. Without it, the 16:9 aspect ratio gives only ~200px
-  // of height at 360px while the text content is ~210–260px
-  // tall (eyebrow + 2-line heading + description + CTAs), which
-  // causes the text to overflow above the hero section. The
-  // height is paired with `sm:min-h-0` so the desktop aspect
-  // ratio is preserved unchanged.
+test("FullHero uses a portrait video aspect ratio on mobile so the video fills the screen", () => {
+  // The hero video must use a portrait frame (3/4 or 4/5) on
+  // mobile so it fills the phone viewport with no black band
+  // above or below the player, and a 16/9 cinematic frame from
+  // `sm` upward. The previous design forced a 16/9 video with a
+  // tall `min-h` floor, which left ~280px of black under the
+  // video on a 360px screen. Pinning the mobile aspect to
+  // `aspect-[3/4]` (or `aspect-[4/5]`) gives the text overlay
+  // somewhere to sit without forcing a tall `min-h`.
   assert.ok(
-    /min-h-\[\d+rem\] sm:min-h-0/.test(heroSrc),
-    "the hero section must include a 'min-h-[Nrem] sm:min-h-0' class so the text overlay fits on mobile",
+    /aspect-\[3\/4\]|aspect-\[4\/5\]/.test(videoSrc),
+    "the video placeholder must use a portrait frame 'aspect-[3/4]' or 'aspect-[4/5]' on mobile so it fills the phone screen",
+  );
+  assert.ok(
+    /sm:aspect-video/.test(videoSrc),
+    "the video placeholder must switch to 'sm:aspect-video' (16/9) on tablet and up so the desktop hero stays cinematic",
   );
   // The hero title must use a responsive size so the heading
   // doesn't wrap into 3 lines on a 360px screen. The current

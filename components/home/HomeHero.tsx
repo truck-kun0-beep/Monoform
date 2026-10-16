@@ -28,33 +28,32 @@ export function HomeHero({ config }: Props) {
 }
 
 function FullHero({ config }: Props) {
-  // The 16:9 aspect ratio gives a hero that's only ~200px tall on a
-  // 360px viewport, which is shorter than the text overlay itself
-  // (eyebrow + 2-line display heading + description + buttons). A
-  // mobile-only minimum height (bigger than the 16:9 intrinsic) keeps
-  // the dark video region tall enough to contain the overlay so the
-  // description and CTAs stay legible and the buttons don't get cut.
-  // The heading uses the smaller `display-xl` floor on mobile and
-  // ramps to `display-2xl` from `sm` upward so the title doesn't
-  // wrap into 3 lines on a 360px screen. A bottom gradient is layered
-  // over the video so the text always has contrast even when the
-  // aspect ratio changes.
+  // The hero video uses a portrait frame (3/4) on mobile so it
+  // fills the screen with no black band above or below the
+  // player, and a cinematic 16/9 from `sm` upward. The text
+  // overlay is pinned to the lower-third of the section on
+  // mobile (so it sits over the bottom of the video and the
+  // video can keep showing the subject above it without being
+  // cropped by the text) and bottom-anchored on `sm+` where the
+  // wide frame leaves plenty of room above for the heading.
+  // A bottom gradient is layered over the lower portion of the
+  // video on every viewport to guarantee text contrast.
   return (
     <section
       aria-labelledby="home-hero-title"
-      className="relative isolate w-full bg-ink min-h-[30rem] sm:min-h-0"
+      className="relative isolate w-full bg-ink"
     >
       <VideoPlaceholder
         video={config.media}
-        aspectRatio={config.mediaAspectRatio ?? config.media.aspectRatio ?? 16 / 9}
+        mobileAspectRatio="3/4"
         className="w-full"
       />
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-ink/85 via-ink/40 to-transparent"
+        className="pointer-events-none absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-ink/85 via-ink/40 to-transparent sm:h-1/2"
       />
       <div className="absolute inset-0 flex flex-col items-start justify-end">
-        <Container className="pb-10 sm:pb-16 lg:pb-20">
+        <Container className="pb-8 sm:pb-16 lg:pb-20">
           <div className="max-w-xl text-paper">
             {config.eyebrow ? (
               <p className="text-eyebrow uppercase text-paper/85">
