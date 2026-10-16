@@ -95,13 +95,13 @@ function SplitCampaign({
   side,
 }: Props & { side: "left" | "right" }) {
   return (
-    <Section spacing="lg" tone={config.tone ?? "paper"} id={config.id}>
-      <div className="grid grid-cols-1 lg:grid-cols-2">
+    <section id={config.id}>
+      <div className="grid grid-cols-1 lg:min-h-[800px] lg:grid-cols-2">
         {side === "left" ? (
           <CampaignMediaPlaceholder
             image={config.media}
             aspectRatio={config.mediaAspectRatio ?? 4 / 5}
-            className="lg:aspect-auto lg:h-full"
+            className="lg:!aspect-auto lg:!h-full [&_img]:!object-top"
           />
         ) : null}
         <div className="flex items-center bg-paper-warm">
@@ -115,13 +115,14 @@ function SplitCampaign({
           <CampaignMediaPlaceholder
             image={config.media}
             aspectRatio={config.mediaAspectRatio ?? 4 / 5}
-            className="lg:aspect-auto lg:h-full"
+            className="lg:!aspect-auto lg:!h-full [&_img]:!object-top"
           />
         ) : null}
       </div>
-    </Section>
+    </section>
   );
 }
+
 
 function Copy({
   config,

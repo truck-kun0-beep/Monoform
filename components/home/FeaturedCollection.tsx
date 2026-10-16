@@ -48,12 +48,14 @@ export function FeaturedCollection({
               </p>
             ) : null}
           </div>
-          {config.cta ? (
-            <Button href={config.cta.href} variant="link" size="sm">
-              <Link href={config.cta.href}>{config.cta.label}</Link>
-            </Button>
-          ) : null}
-        </div>
+          
+            {config.cta ? (
+              <Button href={config.cta.href} variant="link" size="sm">
+                {config.cta.label}
+              </Button>
+            ) : null}
+
+          </div>
 
         <div className="mt-10">
           {config.layout === "carousel" ? (

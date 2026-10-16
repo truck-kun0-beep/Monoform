@@ -20,19 +20,35 @@ type Props = {
  * renderer can be swapped to a `<video autoPlay muted loop playsInline>`
  * element without changing the surrounding layout.
  */
+
 export function VideoPlaceholder({
   video,
   aspectRatio = 16 / 9,
   className,
   tone = "ink",
 }: Props) {
+  const videoSrc = "/videos/cr7.mp4";
+
   return (
-    <MediaPlaceholder
-      label={video.alt}
-      kind="video"
-      aspectRatio={video.aspectRatio ?? aspectRatio}
-      tone={tone}
-      className={cn(className)}
-    />
+    <div
+      className={cn(
+        "relative w-full overflow-hidden",
+        className
+      )}
+      style={{ aspectRatio }}
+    >
+      <video
+        className="absolute inset-0 h-full w-full object-cover"
+        autoPlay
+        muted
+        loop
+        playsInline
+        preload="metadata"
+        aria-label={video.alt}
+      >
+        <source src={videoSrc} type="video/mp4" />
+      </video>
+    </div>
   );
 }
+

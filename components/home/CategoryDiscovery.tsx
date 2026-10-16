@@ -3,6 +3,7 @@ import { CampaignMediaPlaceholder } from "@/components/media";
 import { Container, Section } from "@/components/ui";
 import { cn } from "@/lib/utils";
 import type { HomeCategoryGroup } from "@/config/homepage";
+import Image from "next/image";
 
 type Props = {
   config: HomeCategoryGroup;
@@ -53,10 +54,27 @@ function CategoryTile({
       )}
       aria-label={`Shop ${config.label}`}
     >
-      <CampaignMediaPlaceholder
-        image={config.image}
-        aspectRatio={config.aspectRatio ?? 4 / 5}
-      />
+      
+        <div
+          className="relative w-full overflow-hidden bg-neutral-100"
+          style={{ aspectRatio: config.aspectRatio ?? 4 / 5 }}
+        >
+          <Image
+            src={
+              {
+                "/women": "/images/women.jpg",
+                "/men": "/images/men.jpeg",
+                "/underwear": "/images/underwear.jpg",
+                "/new-arrivals": "/images/new-arrivals.jpg",
+              }[config.href] ?? "/images/women.jpg"
+            }
+            alt={`${config.label} collection`}
+            fill
+            sizes="(max-width: 639px) 50vw, (max-width: 1023px) 50vw, 25vw"
+            className="object-cover transition-transform duration-500 group-hover:scale-105"
+          />
+        </div>
+
       <div className="mt-4 flex items-end justify-between gap-2">
         <div>
           {config.eyebrow ? (

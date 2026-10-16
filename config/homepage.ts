@@ -217,11 +217,12 @@ const secondaryCampaign: HomeCampaign = {
     "A small, considered collection of essentials that work as hard as you do — from the morning meeting to the weekend away.",
   cta: { label: "Explore the Collection", href: "/new-arrivals" },
   media: {
+
+    src: "/images/collection-banner.jpeg",
     alt: "MONOFORM — Made for everyday campaign",
-    aspectRatio: 4 / 5,
+    aspectRatio: 3 / 4,
   },
   layout: "split-right",
-  mediaAspectRatio: 4 / 5,
   tone: "warm",
 };
 
@@ -283,9 +284,10 @@ const brandStory: HomeBrandStory = {
   description:
     "Everyday essentials, considered in detail. Built around versatility, comfort and a more intentional approach to getting dressed.",
   media: {
-    alt: "MONOFORM — studio portrait",
-    aspectRatio: 3 / 4,
-  },
+    src: "/images/studio.jpeg",
+  alt: "MONOFORM — studio editorial video",
+  aspectRatio: 3 / 4,
+},
   mediaAspectRatio: 3 / 4,
   cta: { label: "About MONOFORM", href: "/about" },
 };
