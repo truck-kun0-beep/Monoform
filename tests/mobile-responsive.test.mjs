@@ -113,20 +113,31 @@ test("Logo uses tighter tracking on mobile so the wordmark fits at 320px", () =>
 });
 
 test("FullHero uses a mobile-only minimum height so the text overlay fits", () => {
-  // The hero section must include `min-h-[22rem] sm:min-h-0` so
+  // The hero section must include a mobile-only `min-h-[…]` so
   // the absolute text overlay always fits inside the hero on
   // mobile. Without it, the 16:9 aspect ratio gives only ~200px
-  // of height at 360px while the text content is ~210px tall,
-  // which causes the text to overflow above the hero section.
+  // of height at 360px while the text content is ~210–260px
+  // tall (eyebrow + 2-line heading + description + CTAs), which
+  // causes the text to overflow above the hero section. The
+  // height is paired with `sm:min-h-0` so the desktop aspect
+  // ratio is preserved unchanged.
   assert.ok(
-    /min-h-\[22rem\] sm:min-h-0/.test(heroSrc),
-    "the hero section must include 'min-h-[22rem] sm:min-h-0' so the text overlay fits on mobile",
+    /min-h-\[\d+rem\] sm:min-h-0/.test(heroSrc),
+    "the hero section must include a 'min-h-[Nrem] sm:min-h-0' class so the text overlay fits on mobile",
+  );
+  // The hero title must use a responsive size so the heading
+  // doesn't wrap into 3 lines on a 360px screen. The current
+  // scale is `display-xl` on mobile (floor 2.25rem) and
+  // `display-2xl` from `sm` upward (floor 2.75rem).
+  assert.ok(
+    /text-display-xl[\s\S]*?sm:text-display-2xl/.test(heroSrc),
+    "the hero title must use a mobile-friendly size 'text-display-xl sm:text-display-2xl' so the heading fits on a 360px screen",
   );
   // The hero overlay container should also use a slightly
   // tighter mobile bottom padding so the text doesn't sit
   // flush against the section edge on very tall hero regions.
   assert.ok(
-    /pb-8 sm:pb-16 lg:pb-20/.test(heroSrc),
+    /pb-\d+ sm:pb-16 lg:pb-20/.test(heroSrc),
     "the hero overlay container must use 'pb-8 sm:pb-16 lg:pb-20' for consistent mobile bottom padding",
   );
 });

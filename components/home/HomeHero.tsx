@@ -30,42 +30,49 @@ export function HomeHero({ config }: Props) {
 function FullHero({ config }: Props) {
   // The 16:9 aspect ratio gives a hero that's only ~200px tall on a
   // 360px viewport, which is shorter than the text overlay itself
-  // (eyebrow + 2-line display heading + description + buttons). With
-  // the absolute overlay using `justify-end`, the overflowing text
-  // paints above the hero section and bleeds into the announcement
-  // bar / sticky header behind it. A mobile-only minimum height
-  // ensures the overlay always fits inside the hero without
-  // changing the desktop composition.
+  // (eyebrow + 2-line display heading + description + buttons). A
+  // mobile-only minimum height (bigger than the 16:9 intrinsic) keeps
+  // the dark video region tall enough to contain the overlay so the
+  // description and CTAs stay legible and the buttons don't get cut.
+  // The heading uses the smaller `display-xl` floor on mobile and
+  // ramps to `display-2xl` from `sm` upward so the title doesn't
+  // wrap into 3 lines on a 360px screen. A bottom gradient is layered
+  // over the video so the text always has contrast even when the
+  // aspect ratio changes.
   return (
     <section
       aria-labelledby="home-hero-title"
-      className="relative isolate w-full bg-ink min-h-[22rem] sm:min-h-0"
+      className="relative isolate w-full bg-ink min-h-[30rem] sm:min-h-0"
     >
       <VideoPlaceholder
         video={config.media}
         aspectRatio={config.mediaAspectRatio ?? config.media.aspectRatio ?? 16 / 9}
         className="w-full"
       />
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-ink/85 via-ink/40 to-transparent"
+      />
       <div className="absolute inset-0 flex flex-col items-start justify-end">
-        <Container className="pb-8 sm:pb-16 lg:pb-20">
+        <Container className="pb-10 sm:pb-16 lg:pb-20">
           <div className="max-w-xl text-paper">
             {config.eyebrow ? (
-              <p className="text-eyebrow uppercase text-paper/80">
+              <p className="text-eyebrow uppercase text-paper/85">
                 {config.eyebrow}
               </p>
             ) : null}
             <h1
               id="home-hero-title"
-              className="mt-3 text-display-2xl text-paper"
+              className="mt-3 text-display-xl text-paper sm:text-display-2xl"
             >
               {config.title}
             </h1>
             {config.description ? (
-              <p className="mt-4 max-w-md text-sm text-paper/80 sm:text-base">
+              <p className="mt-4 max-w-md text-sm text-paper/85 sm:text-base">
                 {config.description}
               </p>
             ) : null}
-            <div className="mt-6 flex flex-wrap gap-3">
+            <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
               <HeroCta cta={config.primaryCta} tone="inverse" />
               {config.secondaryCta ? (
                 <HeroCta cta={config.secondaryCta} tone="inverse-outline" />
@@ -139,7 +146,10 @@ function HeroCta({
       <Link
         href={cta.href}
         className={cn(
-          "inline-flex h-12 items-center justify-center px-8 text-sm uppercase tracking-[0.2em] transition-colors duration-base ease-out-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-paper",
+          // Full-width on mobile for a confident stacked-button look;
+          // intrinsic-width on `sm` and up where the buttons sit
+          // side-by-side.
+          "flex w-full h-12 items-center justify-center px-8 text-sm uppercase tracking-[0.2em] transition-colors duration-base ease-out-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-paper sm:inline-flex sm:w-auto",
           styles,
         )}
       >
