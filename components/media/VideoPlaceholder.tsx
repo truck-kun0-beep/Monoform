@@ -2,28 +2,38 @@ import { MediaPlaceholder } from "./MediaPlaceholder";
 import type { ImageSource } from "@/types";
 import { cn } from "@/lib/utils";
 
+type Aspect = "3/4" | "4/5" | "1/1" | "video";
+
 type Props = {
   video: ImageSource;
   className?: string;
   /**
-   * Editorial aspect ratio used on mobile (below the `sm`
-   * breakpoint). Defaults to 3/4 so the video fills a typical
-   * phone viewport with no black band above or below the player.
-   * On tablet and up the frame switches to 16/9 (Tailwind's
-   * `aspect-video`).
+   * Single aspect ratio for the video frame. Applies at every
+   * viewport so the frame matches the actual `cr7.mp4` (16/9) and
+   * there are no black bars on mobile or desktop. Defaults to
+   * "video" (Tailwind's `aspect-video` = 16/9).
    *
-   * For product-page videos the caller can override either or
-   * both ratios with `mobileAspectRatio` / `desktopAspectRatio`.
-   * Accepts "3/4", "4/5", "1/1" or "video" (16/9).
+   * For callers that need a different ratio below the `sm`
+   * breakpoint, pass `mobileAspectRatio`. For callers that need
+   * a different ratio on `sm` and up, pass `desktopAspectRatio`.
+   * The pair (mobile, desktop) is then resolved by
+   * `pickRatioClasses()` — every return is a static string
+   * literal so Tailwind's content scanner always finds the
+   * `aspect-[…]` and `sm:aspect-[…]` utilities in the source.
    */
-  mobileAspectRatio?: "3/4" | "4/5" | "1/1" | "video";
+  aspectRatio?: Aspect;
   /**
-   * Optional aspect ratio override used at the `sm` breakpoint
-   * and up. Useful for product videos that should keep a
-   * portrait frame on desktop too. Defaults to Tailwind's
-   * `sm:aspect-video` (16/9).
+   * Mobile (< sm) aspect ratio override. If set, takes precedence
+   * over `aspectRatio` below the `sm` breakpoint. PC (`sm:` and
+   * up) still uses `desktopAspectRatio` or, as a fallback, the
+   * top-level `aspectRatio` or "video".
    */
-  desktopAspectRatio?: "3/4" | "4/5" | "1/1" | "video";
+  mobileAspectRatio?: Aspect;
+  /**
+   * Desktop (sm and up) aspect ratio override. Defaults to
+   * `aspectRatio` or "video".
+   */
+  desktopAspectRatio?: Aspect;
   tone?: "ink" | "warm";
   /** Whether real video should autoplay and loop when supplied. */
   autoPlayLoop?: boolean;
@@ -37,34 +47,35 @@ type Props = {
  * renderer can be swapped to a `<video autoPlay muted loop playsInline>`
  * element without changing the surrounding layout.
  *
- * The aspect ratio is responsive: a portrait frame (default 3/4) on
- * mobile so the video fills the screen and a cinematic 16/9 on
- * tablet and up. The choice is hard-coded in the className rather
- * than driven by a prop so the production CSS always contains the
- * same two utilities — Tailwind's tree-shaker is happy and the
- * cascade is deterministic.
+ * The aspect-ratio class string is built by `pickRatioClasses()` and
+ * every return is a static string literal. Tailwind's content scanner
+ * finds the `aspect-[…]` and `sm:aspect-[…]` utilities in this file's
+ * source, so the production CSS always contains both classes and the
+ * cascade is deterministic. A function that returns `"aspect-[3/4]"`
+ * without the literal appearing in the source would be skipped by the
+ * JIT and the wrapper would collapse to its content's intrinsic
+ * height on mobile.
  */
 
 export function VideoPlaceholder({
   video,
-  mobileAspectRatio = "3/4",
-  desktopAspectRatio = "video",
+  aspectRatio = "video",
+  mobileAspectRatio,
+  desktopAspectRatio,
   className,
   tone = "ink",
 }: Props) {
   const videoSrc = "/videos/cr7.mp4";
-  const mobileClass = ratioToClass(mobileAspectRatio);
-  const desktopClass = ratioToClass(desktopAspectRatio);
+  const mobile = mobileAspectRatio ?? aspectRatio;
+  const desktop = desktopAspectRatio ?? aspectRatio;
   return (
     <div
       className={cn(
         "relative w-full overflow-hidden",
-        // Mobile: portrait so the video fills the screen.
-        // Tablet+: cinematic 16/9 by default. Both are class-
-        // based so the `sm:` variant wins by cascade order at
-        // the breakpoint, no inline-style specificity wars.
-        mobileClass,
-        desktopClass,
+        // Base class = mobile (no `sm:` prefix). `sm:` class
+        // overrides it from 640px upward. Both are static
+        // literals so Tailwind's JIT picks them up.
+        pickRatioClasses(mobile, desktop),
         className,
       )}
     >
@@ -83,19 +94,33 @@ export function VideoPlaceholder({
   );
 }
 
-function ratioToClass(ratio: "3/4" | "4/5" | "1/1" | "video"): string {
-  // The desktop ratio is always emitted with a `sm:` prefix so it
-  // only applies from the `sm` breakpoint upward. The mobile ratio
-  // (emitted by the caller) is the base class.
-  switch (ratio) {
-    case "3/4":
-      return "sm:aspect-[3/4]";
-    case "4/5":
-      return "sm:aspect-[4/5]";
-    case "1/1":
-      return "sm:aspect-square";
-    case "video":
-      return "sm:aspect-video";
-  }
+/**
+ * Build the aspect-ratio class string for the requested
+ * (mobile, desktop) pair. Every return is a static literal so
+ * Tailwind's content scanner finds the `aspect-[…]` and
+ * `sm:aspect-[…]` utilities in the source — a literal that
+ * only appears inside a function body that returns it is not
+ * enough on its own; here every branch is a `return "..."`
+ * with the class names written out, which is what the JIT
+ * scans.
+ */
+function pickRatioClasses(mobile: Aspect, desktop: Aspect): string {
+  if (mobile === "3/4" && desktop === "3/4") return "aspect-[3/4] sm:aspect-[3/4]";
+  if (mobile === "3/4" && desktop === "4/5") return "aspect-[3/4] sm:aspect-[4/5]";
+  if (mobile === "3/4" && desktop === "1/1") return "aspect-[3/4] sm:aspect-square";
+  if (mobile === "3/4" && desktop === "video") return "aspect-[3/4] sm:aspect-video";
+  if (mobile === "4/5" && desktop === "3/4") return "aspect-[4/5] sm:aspect-[3/4]";
+  if (mobile === "4/5" && desktop === "4/5") return "aspect-[4/5] sm:aspect-[4/5]";
+  if (mobile === "4/5" && desktop === "1/1") return "aspect-[4/5] sm:aspect-square";
+  if (mobile === "4/5" && desktop === "video") return "aspect-[4/5] sm:aspect-video";
+  if (mobile === "1/1" && desktop === "3/4") return "aspect-square sm:aspect-[3/4]";
+  if (mobile === "1/1" && desktop === "4/5") return "aspect-square sm:aspect-[4/5]";
+  if (mobile === "1/1" && desktop === "1/1") return "aspect-square sm:aspect-square";
+  if (mobile === "1/1" && desktop === "video") return "aspect-square sm:aspect-video";
+  if (mobile === "video" && desktop === "3/4") return "aspect-video sm:aspect-[3/4]";
+  if (mobile === "video" && desktop === "4/5") return "aspect-video sm:aspect-[4/5]";
+  if (mobile === "video" && desktop === "1/1") return "aspect-video sm:aspect-square";
+  // mobile === "video" && desktop === "video" — the default.
+  return "aspect-video sm:aspect-video";
 }
 

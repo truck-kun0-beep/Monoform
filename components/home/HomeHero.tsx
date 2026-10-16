@@ -45,7 +45,12 @@ function FullHero({ config }: Props) {
     >
       <VideoPlaceholder
         video={config.media}
-        mobileAspectRatio="3/4"
+        // 16/9 on every viewport — the video file's native
+        // aspect ratio, so the frame matches the black
+        // background and nothing is cropped or padded. PC is
+        // also 16/9 (the previous `sm:aspect-video` default).
+        mobileAspectRatio="video"
+        desktopAspectRatio="video"
         className="w-full"
       />
       <div
