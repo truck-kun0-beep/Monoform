@@ -116,17 +116,23 @@ test("Logo uses tighter tracking on mobile so the wordmark fits at 320px", () =>
   );
 });
 
-test("FullHero uses a cinematic 16/9 video aspect ratio on every viewport", () => {
-  // The hero video is `cr7.mp4` (16/9). The frame must use
-  // `aspect-video` on mobile so the video fills the viewport
-  // without letterboxing against the black background, and the
-  // same `aspect-video` on `sm` and up so the desktop hero
-  // stays cinematic. The previous design used a portrait
-  // `aspect-[3/4]` on mobile which cropped the subject too
-  // aggressively.
+test("FullHero uses a portrait video aspect ratio on mobile so the overlay text has room", () => {
+  // The bottom-anchored text overlay (eyebrow + heading +
+  // description + two stacked buttons + bottom padding) takes
+  // ~330px on a 360px viewport. A 16/9 video frame on the
+  // same width is only 202px tall, which causes the flex
+  // content to overflow upward and the heading to disappear
+  // behind the announcement bar and header. A 3/4 portrait
+  // frame on mobile (≈480px tall) is tall enough to contain
+  // the overlay without clipping. PC keeps the cinematic
+  // 16/9 (the default) so the desktop hero is unchanged.
   assert.ok(
-    /aspect-video[\s\S]*?sm:aspect-video/.test(videoSrc),
-    "the video placeholder must use 'aspect-video sm:aspect-video' (16/9) on every viewport so the frame matches the video file's native aspect ratio",
+    /aspect-\[3\/4\]/.test(videoSrc),
+    "the video placeholder must use 'aspect-[3/4]' on mobile so the bottom-anchored text overlay has enough vertical room to render fully on a 360px viewport",
+  );
+  assert.ok(
+    /sm:aspect-video/.test(videoSrc),
+    "the video placeholder must switch to 'sm:aspect-video' (16/9) on tablet and up so the desktop hero stays cinematic",
   );
   // The hero title must use a responsive size so the heading
   // doesn't wrap into 3 lines on a 360px screen. The current
